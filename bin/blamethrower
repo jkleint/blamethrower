@@ -1,0 +1,172 @@
+#!/usr/bin/env python
+
+# Copyright 2012 John Kleint
+# This is free software, licensed under the MIT License; see LICENSE.txt.
+
+"""
+BlameThrower: Blame bugs on authors.
+
+Combine static analysis results with version control authorship
+and output bugs attributed to authors.
+
+  <analyzer>    the name of a supported static analysis tool (below)
+  bugs.txt      the output of that static analysis tool
+  <repo>        the name of your version control system (below)
+  blame.txt     the output of your VCS `blame` or `annotate` command
+
+You can use as many --<analyzer> and --<repo> arguments as you like.
+"""
+
+# jkleint, Sep 21, 2012
+
+from __future__ import print_function
+import sys
+from collections import defaultdict
+import itertools
+import argparse
+import warnings
+import json
+from datetime import datetime
+
+import blamethrower.stats
+
+EPILOG = r"""
+By default summary statistics are output to stdout in JSON format.
+
+The --rawdata option will output all data as tab-separated values,
+including a header, with the following fields:
+
+    {fields}
+
+Tabs and newlines in fields are replaced with the two-character escape
+sequences \t and \n.
+
+Example:
+
+    blamethrower --pylint pylint.txt --git git-blame.txt
+
+""".format(fields=' '.join(blamethrower.Analyne._fields))       # pylint: disable=W0212
+
+
+def _make_argparser():
+    """:Return: An :class:`argparse.ArgumentParser` that recognizes all
+    analyzers and reporeaders and their options."""
+    # The point of this is to allow analyzers and reporeaders to specify their
+    # own help text and options.  E.g., the git module can define git.OPTIONS = {'foo': 'Set the foo property'},
+    # and we will automatically add --git-foo as a command-line option with the given help string.
+    def add_module(opt_group, module):
+        """Add options for analyzer or reporeader `module` to argparse option group `opt_group`."""
+        name = module.__name__.split('.')[-1]
+        # Would actually like to use nargs='+', but it makes the help messages ugly.
+        opt_group.add_argument("--" + name, type=argparse.FileType('rU'), help=getattr(module, 'HELP', None), metavar='')
+        for option, help_ in getattr(module, 'OPTIONS', {}).iteritems():
+            optname = "{0}-{1}".format(name, option)
+            mod_opts[optname] = help_       # We defer this 'til last so options show last
+
+    parser = argparse.ArgumentParser(add_help=False, usage='%(prog)s [options] [--<analyzer> bugs.txt]... [--<repo> blame.txt]...',
+                                     description=__doc__, epilog=EPILOG, formatter_class=argparse.RawDescriptionHelpFormatter)
+    mod_opts = {}
+    for package, modnames in (('analyzers', blamethrower.getanalyzers()), ('reporeaders', blamethrower.getreporeaders())):
+        opt_group = parser.add_argument_group(package)
+        for modname in modnames:
+            module = blamethrower.getmodule('blamethrower.' + package, modname)
+            add_module(opt_group, module)
+
+    options = parser.add_argument_group('options')
+    for optname, help_ in mod_opts.iteritems():
+        options.add_argument("--" + optname, dest=optname, help=help_, metavar='')
+    options.add_argument('--rawdata', action='store_true', help='output all bugs/blame as tab-separated values')
+    options.add_argument('--version', action='version', version='BlameThrower ' + blamethrower.__version__, help="show version and exit")
+    options.add_argument('--help', action='help', help='show this usage message and exit')
+    return parser
+
+
+def parse_args(args):
+    """:Return: a triple of dicts describing the analyzers, reporeaders, and options, respectively,
+    requested from the command-line `args`.
+
+    The analyzer and reporeader dicts map repo or analyzer names to a dict with `files` and
+    `options` keys.  `files` is a list of open file objects; `options` is a dict of any
+    analzyer- or repo-specific (key, value) pairs.
+
+    The options dict maps option names to values.
+    :rtype: (dict,dict,dict)
+    """
+    parser = _make_argparser()
+    try:
+        namespace = parser.parse_args(args)
+    except IOError as err:      # Seems like argparse should really do this
+        parser.exit(1, "Unable to open file: '{0}'\n".format(err.filename))
+
+    options = {}
+    packages = {}
+    mod2package = {}
+    for pkg, modnames in (('analyzers', blamethrower.getanalyzers()), ('reporeaders', blamethrower.getreporeaders())):
+        mod2package.update(dict.fromkeys(modnames, pkg))
+        packages[pkg] = defaultdict(lambda: {'files': [], 'options': {}})
+
+    for option, value in vars(namespace).iteritems():
+        modname, _, mod_opt_name = option.partition('-')
+        pkg = mod2package.get(modname)
+        if pkg:
+            if value:
+                if mod_opt_name:
+                    packages[pkg][modname]['options'][mod_opt_name] = value
+                else:
+                    packages[pkg][modname]['files'].append(value)
+        else:
+            options[option] = value
+
+    packages = dict((name, dict(modules)) for name, modules in packages.iteritems())
+    if not any(packages.itervalues()):
+        parser.print_help(sys.stderr)
+        sys.exit(1)
+    for package in packages.itervalues():
+        for name, filesopts in package.iteritems():
+            if filesopts['options'] and not filesopts['files']:
+                parser.exit(1, "--{0}-{1} given without --{0}.\n".format(name, filesopts['options'].popitem()[0]))
+    return (packages['analyzers'], packages['reporeaders'], options)
+
+
+def as_tsv(analynes):
+    r""":Return: an iterator over `analynes` serialized as strings of tab separated values.
+
+    Includes header line.  Tabs and newlines are escaped as \t and \n, respectively.
+    """
+    def tostr(val):
+        """:Return: stringify `val` and escape tabs and newlines."""
+        return str('' if val is None else val).replace('\t', '\\t').replace('\n', '\\n')
+
+    for analyne in itertools.chain([blamethrower.Analyne._fields], analynes):       # pylint: disable=W0212
+        yield '\t'.join(tostr(val) for val in analyne)
+
+
+def main(args):
+    """Read input, process, write output."""
+    analyzers, reporeaders, options = parse_args(args[1:])
+    bugsfiles = [(analyzer, bugsfile, filesopts['options']) for analyzer, filesopts in analyzers.iteritems() for bugsfile in filesopts['files']]
+    bugs = itertools.chain.from_iterable(blamethrower.getbugs(analyzer, bugsfile, **opts) for analyzer, bugsfile, opts in bugsfiles)   # Each reads lazily.  Bugs are not deduped.    pylint: disable=W0142
+    blamefiles = [(repo, repofile, filesopts['options']) for repo, filesopts in reporeaders.iteritems() for repofile in filesopts['files']]
+    blame = itertools.chain.from_iterable(blamethrower.getblame(repo, blamefile, **opts) for repo, blamefile, opts in blamefiles)   # pylint: disable=W0142
+
+    with warnings.catch_warnings(record=True) as warnlist:
+        analynes = blamethrower.merge(bugs if bugsfiles else None, blame if blamefiles else None)
+        if options['rawdata']:
+            for line in as_tsv(analynes):
+                print(line)
+        else:
+            stats = blamethrower.stats.getstats(analynes)
+            stats['BlameThrower'] = {
+                'version': blamethrower.__version__,
+                'timestamp': datetime.now().replace(microsecond=0).isoformat(),
+                'args': args,
+            }
+            json.dump(stats, sys.stdout, sort_keys=True, indent=2)
+
+        for warning in warnlist:
+            if warning.category == blamethrower.NoOneToBlameWarning:
+                print("Warning: {0}.".format(warning.message), file=sys.stderr)
+
+
+if __name__ == '__main__':
+    main(sys.argv)

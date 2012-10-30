@@ -1,0 +1,36 @@
+BlameThrower Design Notes
+=========================
+
+Modularity
+----------
+First, it's important that generating blame annotations and static analysis
+reports is done separately.  That way, you can use the options
+you like on the files you care about and save the output.  BlameThrower reads in that
+output.
+
+Unfortunately, neither git nor mercurial provide usable annotations on their
+own (for renames, they output the old filenames, and other quibbles).  Thus,
+we have to use a helper script to prepend a header to each file.
+
+Character Encoding
+------------------
+Originally, I thought it would be nice to do the usual thing of specifying a
+character encoding and reading everything in as Unicode.  However, most VCSes
+store filenames and code (and maybe usernames) as binary blobs, but other
+internal stuff as some encoding.  So the output may not have any consistent
+encoding.  So, we just read binary strings and output binary strings, and the
+user can sort out encoding issues themselves, since presumably they know their
+encoding strategy (ha!).
+
+Specifying File Types
+---------------------
+Originally, I wanted to go with autodetection of filetypes, so you could just
+throw a pile of bug files and blame files at the tool, and it would figure it
+out.  However, this adds complexity and puts a greater burden on plugin
+authors, since plugins would have to be able to score random input and see if
+it fits.  It also requires either buffering or seeking inputs, since we'd have
+to "peek" for autodetection, which would either be slow or prevent using
+FIFOs.  Plus, autodetection could be wrong, leading to hard-to-trace errors
+and confusion for users.  So, I decided explicit was better than implicit and
+just required users to specify the type of each file.
+

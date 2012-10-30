@@ -1,0 +1,5 @@
+BlameThrower TODO
+=================
+* Script to make pretty graphs; matplotlib or newfangled.js?
+* Add SLOC count information.
+* Wrapper that slurps down repos, runs the modules you tell it, and produces output all in one step.
