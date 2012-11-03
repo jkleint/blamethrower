@@ -44,7 +44,7 @@ def analyze(bugsfile, prefix=''):
 
     :param str prefix: A path prefix to prepend to every filename.
     """
-    for _, bug in ifilter(lambda (_, elt): elt.tag == 'BugInstance', ElementTree.iterparse(bugsfile)):
+    for _, bug in ifilter(lambda event_elt: event_elt[1].tag == 'BugInstance', ElementTree.iterparse(bugsfile)):
         bugtype = bug.get('type')
         severity = rank2severity(int(bug.get('rank')))
         sourcelines = bug.findall('SourceLine')

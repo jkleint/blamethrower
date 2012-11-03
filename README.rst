@@ -1,5 +1,9 @@
 BlameThrower
 ============
+.. image:: https://travis-ci.org/jkleint/blamethrower.png
+  :alt: Travis CI build status
+  :target: https://travis-ci.org/jkleint/blamethrower
+  :align: right
 
 Static analysis meets ``git-blame``. ::
 
