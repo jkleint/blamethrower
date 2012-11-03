@@ -3,7 +3,7 @@ python:
   - 2.6
   - 2.7
   - pypy
-install: "if [[ $TRAVIS_PYTHON_VERSION == '2.6' ]]; then pip install argparse --use-mirrors; fi"
+install: "if [[ $TRAVIS_PYTHON_VERSION == '2.6' ]]; then pip install --use-mirrors unittest2 argparse ; fi"
 script: test/test.sh
 notifications:
   email: false

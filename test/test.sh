@@ -12,7 +12,7 @@ unittest=$(which unit2 || echo "python -m unittest")
 $unittest discover
 
 echo -e "\nFunctional tests"
-blamethrower="$dir/bin/blamethrower"
+blamethrower=("$dir/bin/blamethrower")
 export PYTHONPATH=$PYTHONPATH:"$dir"
 function statsfilter {
     sed '1,/  }, /d'    # Delete args, version, timestamp at start of stats output
@@ -30,9 +30,9 @@ for infile in {reporeaders,analyzers}/*.txt.bz2; do
     datafile="${parts[*]}"
     parts[2]=json
     statfile="${parts[*]}"
-    "$blamethrower" --rawdata "--$module" <(bzcat "$infile") | tail -n+2 > "$outfile"
+    "${blamethrower[@]}" --rawdata "--$module" <(bzcat "$infile") | tail -n+2 > "$outfile"
     diff -u0 --label="$datafile" <(bzcat "$datafile") "$outfile"
-    "$blamethrower" "--$module" <(bzcat "$infile") > "$outfile"
+    "${blamethrower[@]}" "--$module" <(bzcat "$infile") > "$outfile"
     diff -u0 --label="$statfile" <(bzcat "$statfile" | statsfilter) --label="$outfile" <(statsfilter < "$outfile")
     echo -n .
 done
@@ -45,10 +45,10 @@ for datafile in *.tsv.bz2; do
     analyzer="${parts[2]}"
     parts[3]=json
     statfile="${parts[*]}"
-    "$blamethrower" --rawdata $(cat "$project.$repo.$analyzer.opts" 2>/dev/null) "--$repo" <(bzcat reporeaders/"$project.$repo.txt.bz2") "--$analyzer" <(bzcat analyzers/"$project.$analyzer.txt.bz2") 2> "$errfile" | tail -n+2 > "$outfile"
+    "${blamethrower[@]}" --rawdata $(cat "$project.$repo.$analyzer.opts" 2>/dev/null) "--$repo" <(bzcat reporeaders/"$project.$repo.txt.bz2") "--$analyzer" <(bzcat analyzers/"$project.$analyzer.txt.bz2") 2> "$errfile" | tail -n+2 > "$outfile"
     diff -u0 --label="$datafile" <(bzcat "$datafile") "$outfile"
     diff -u0 "$(ls "$project.$repo.$analyzer.err" 2>/dev/null || ls /dev/null)" "$errfile"
-    "$blamethrower" $(cat "$project.$repo.$analyzer.opts" 2>/dev/null) "--$repo" <(bzcat reporeaders/"$project.$repo.txt.bz2") "--$analyzer" <(bzcat analyzers/"$project.$analyzer.txt.bz2") 2> "$errfile" > "$outfile"
+    "${blamethrower[@]}" $(cat "$project.$repo.$analyzer.opts" 2>/dev/null) "--$repo" <(bzcat reporeaders/"$project.$repo.txt.bz2") "--$analyzer" <(bzcat analyzers/"$project.$analyzer.txt.bz2") 2> "$errfile" > "$outfile"
     diff -u0 --label="$statfile" <(bzcat "$statfile" | statsfilter) --label="$outfile" <(statsfilter < "$outfile")
     diff -u0 "$(ls "$project.$repo.$analyzer.err" 2>/dev/null || ls /dev/null)" "$errfile"
     echo -n .

@@ -21,7 +21,7 @@ You can use as many --<analyzer> and --<repo> arguments as you like.
 
 from __future__ import print_function
 import sys
-from collections import defaultdict
+from collections import defaultdict, Mapping, Iterable
 import itertools
 import argparse
 import warnings
@@ -141,6 +141,25 @@ def as_tsv(analynes):
         yield '\t'.join(tostr(val) for val in analyne)
 
 
+class PrettyFloat(float):
+    """A float with a repr that is consistent between Python 2.6 and 2.7/3.x."""
+    def __repr__(self):
+        # A little verbose, but the only way to maintain precision and always have a decimal point.
+        return '{0:.15f}'.format(self)
+
+
+def pretty_floats(obj):
+    """:Return: `obj` with any floats wrapped in a :class:`PrettyFloat`, recursively."""
+    # Adapted from http://stackoverflow.com/a/1733105/171236
+    if isinstance(obj, float):
+        return PrettyFloat(obj)
+    elif isinstance(obj, Mapping):
+        return dict((k, pretty_floats(v)) for k, v in obj.iteritems())
+    elif isinstance(obj, Iterable) and not isinstance(obj, basestring):
+        return map(pretty_floats, obj)
+    return obj
+
+
 def main(args):
     """Read input, process, write output."""
     analyzers, reporeaders, options = parse_args(args[1:])
@@ -161,7 +180,7 @@ def main(args):
                 'timestamp': datetime.now().replace(microsecond=0).isoformat(),
                 'args': args,
             }
-            json.dump(stats, sys.stdout, sort_keys=True, indent=2)
+            json.dump(pretty_floats(stats), sys.stdout, sort_keys=True, indent=2)
 
         for warning in warnlist:
             if warning.category == blamethrower.NoOneToBlameWarning:
